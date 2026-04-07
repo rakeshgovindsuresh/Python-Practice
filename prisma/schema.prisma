@@ -1,0 +1,125 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_KYC
+}
+
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  NGN
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  firstName    String     @map("first_name")
+  lastName     String     @map("last_name")
+  phone        String?    @unique
+  status       UserStatus @default(ACTIVE)
+  kycStatus    KycStatus  @default(UNVERIFIED) @map("kyc_status")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  wallets       Wallet[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id        String       @id @default(uuid())
+  userId    String       @map("user_id")
+  currency  Currency     @default(USD)
+  balance   Decimal      @default(0) @db.Decimal(18, 2)
+  status    WalletStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentTransactions    Transaction[] @relation("SenderWallet")
+  receivedTransactions Transaction[] @relation("ReceiverWallet")
+
+  @@unique([userId, currency])
+  @@map("wallets")
+}
+
+model Transaction {
+  id               String            @id @default(uuid())
+  idempotencyKey   String            @unique @map("idempotency_key")
+  senderWalletId   String?           @map("sender_wallet_id")
+  receiverWalletId String?           @map("receiver_wallet_id")
+  amount           Decimal           @db.Decimal(18, 2)
+  currency         Currency
+  type             TransactionType
+  status           TransactionStatus @default(PENDING)
+  description      String?
+  metadata         Json?
+  failureReason    String?           @map("failure_reason")
+  processedAt      DateTime?         @map("processed_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  senderWallet   Wallet? @relation("SenderWallet", fields: [senderWalletId], references: [id])
+  receiverWallet Wallet? @relation("ReceiverWallet", fields: [receiverWalletId], references: [id])
+
+  @@index([senderWalletId])
+  @@index([receiverWalletId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
